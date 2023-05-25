@@ -407,6 +407,7 @@ app.get('/friends',checkApiKey, async (req, res) => {
                 res.status(404).send('User not found');
                 logger.error('User not found', Datetime.now()); 
             }else{
+               
                 res.status(200).send(result)
             }
         }catch(error){
@@ -704,6 +705,8 @@ app.post('/comment',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
+    const username=req.body.username;
+    const profile_picture_url=req.body.profile_picture_url;
     const post_id = req.body.post_id;
     const comment = req.body.comment;
     const sanitizedComment = sanitize(comment);
@@ -716,7 +719,7 @@ app.post('/comment',checkApiKey, async (req, res) => {
             res.status(404).send('Post not found');
             logger.error('Post not found',Datetime.now())
         }else{
-            const result=await mongoose.model('Post').updateOne({post_id: post_id}, {$addToSet: {comments: {comment: sanitizedComment, created_by: id}}});
+            const result=await mongoose.model('Post').updateOne({post_id: post_id}, {$addToSet: {comments: {comment: sanitizedComment, created_by: username,profile_picture_url:profile_picture_url}}});
             res.status(200).send('Comment added successfully')
             logger.info('Comment added successfully',Datetime.now())
         }
@@ -731,8 +734,8 @@ app.post('/comment',checkApiKey, async (req, res) => {
         logger.error('User is not logged in',Datetime.now())    
     }
 });
-async function deleteFileFromBucketById(bucketName, fileId) {
-    const bucket = storage.bucket(bucketName);
+async function deleteFileFromBucketById(fileId) {
+    const bucket = storage.bucket(process.env[bucket]);
     const file = bucket.file(fileId);
     await file.delete();
     console.log(`File with ID ${fileId} deleted successfully.`);
@@ -744,18 +747,26 @@ app.delete('/comment',checkApiKey, async (req, res) => {
     const id=decoded.id;
     const post_id = req.body.post_id;
     const comment_id = req.body.comment_id;
+    const username=req.body.username;
+    const profile_picture_url=profile_picture_url;
     if(token){
 
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
-        const post=await mongoose.model('Post').find({post_id: post_id}, {comments: 1});
+        const post=await mongoose.model('Post').find({post_id: post_id}, {comments: 1,created_by:1});
         if(!post){
             res.status(404).send('Post not found');
             logger.error('Post not found',Datetime.now())
         }else{
-            const result=await mongoose.model('Post').updateOne({post_id: post_id}, {$pull: {comments: {comment_id: comment_id, created_by: id}}});
+            if (created_by!==username){
+                res.status(401).send("YOu are not authorised to do this action ")
+                logger.error("User not authorised to do action",DateTime.now())
+            }
+            else{
+            const result=await mongoose.model('Post').updateOne({post_id: post_id}, {$pull: {comments: {comment_id: comment_id, created_by: username,profile_picture_url}}});
             res.status(200).send('Comment deleted successfully')
             logger.info('Comment deleted successfully',Datetime.now())
+            }
         }
         }catch(error){
             res.status(500).send("Internal Server Error");
