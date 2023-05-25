@@ -20,6 +20,8 @@ app.use ( cors (
         optionsSuccessStatus : 200
     }
 ) ) ;
+//setup env
+require('dotenv').config();
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
@@ -156,7 +158,8 @@ if(err){
 }finally{
     mongoose.connection.close();
 }
-) 
+)
+}
 });
                                                                                                       
 
