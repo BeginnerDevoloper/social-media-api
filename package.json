@@ -1,0 +1,11 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "The backend for my app.",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest Tests/index.test.js"
+  },
+  "author": "BeginnerDevoloper",
+  "license": "MIT"
+}
