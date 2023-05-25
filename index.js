@@ -9,22 +9,25 @@ const  jwt = require ( 'jsonwebtoken' ) ;
 const mongoose = require('mongoose');
 const rateLimit=require('express-rate-limiter')
 const fs = require('fs');
+const multer=require('multer')
 const winston = require('winston');
-const cron= require('node-cron');
-const MongoClient = require('mongodb')
+const {Storage}= require("google-cloud/storage")
+const upload= multer({dest:'/uploads'})
+//const cron= require('node-cron');
+//const MongoClient = require('mongodb')
 const { combine, timestamp, label, printf } = winston.format;
 const { randomBytes } = require('crypto');
 app.use ( cors ( 
     {
-        origin : 'http://localhost:4200' ,
+        origin : '*' ,
         optionsSuccessStatus : 200
     }
 ) ) ;
-//setup env
+
 require('dotenv').config();
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100, 
 });
 app.use(limiter)
 app.use ( express . json ( ) ) ;
@@ -34,7 +37,7 @@ function checkApiKey(req, res, next) {
     if (!apiKey) {
       return res.status(401).json({error: 'API key is missing'});
     }
-    // validate the apiKey against a list of valid keys
+   
     if (apiKey !== 'validApiKey') {
       return res.status(401).json({error: 'Invalid API key'});
     }
@@ -42,12 +45,12 @@ function checkApiKey(req, res, next) {
   }
 
 
-// define a custom log format
+
 const myFormat = printf(({ level, message, label, timestamp }) => {
   return `${timestamp} [${label}] ${level}: ${message}`;
 });
 
-// create a logger instance that writes to a file
+
 const logger = winston.createLogger({
   format: combine(
     label({ label: 'my-app' }),
@@ -60,22 +63,25 @@ const logger = winston.createLogger({
 });
 
   
-  // use the middleware for a specific route
   app.get('/protected', checkApiKey, (req, res) => {
     res.json({message: 'API key validated'});
   });
   
-//import the private and public key using fs
 const  privateKey = fs . readFileSync ( './private.pem' ,  'utf-8' ) ;
 const  publicKey = fs . readFileSync ( './public.pem' ,  'utf-8' ) ;
-
+const storage= new Storage({
+    keyFilename:process.env[name],
+    projectId:process.env[id]
+})
 app.get ( '/' ,  ( req ,  res )  =>  {
     res . send ( 'Hello World!' ) ;
     }
 ) ;
-//create user schema
+
 const  userSchema = new  mongoose . Schema ( {
     id: Number,
+    profile_picture_id:Number,
+    profile_picture_url:String,
     username : String ,
     password : String ,
     email : String ,
@@ -85,83 +91,12 @@ const  userSchema = new  mongoose . Schema ( {
     salt: String,
     createdAt: Date
 }) ;
-//make the user schema with the username optional
+
 const  User =  mongoose . model ( 'User' ,  userSchema ) ;
 
-//make the register route with httponlycookie jwt rsa 256 and save the user id and hash and salt the password
-app.post ( '/register' ,checkApiKey,  async  ( req ,  res )  =>  {
 
-    const  username = req . body . username ;
-    const  password = req . body . password ;
-    const  email = req . body . email ;
-    const gender= req.body.gender;
-    const bio= req.body.bio;
-    const dob= req.body.dob;
-//validate and sanitize the data using express validator and sanitize
-    req . check ( 'username' ,  'Username is too short' ) . isLength ( {  min :  4  } ) ;
-    req . check ( 'password' ,  'Password is too short' ) . isLength ( {  min :  4  } ) ;
-    req . check ( 'email' ,  'Email is not valid' ) . isEmail ( ) ;
-    //validate the gender
-    //f gener 
-    const label=['Male','Female',null]
-   if(label.includes(gender)){
-     res.send('Invalid gender')
-     logger.error('Invalid gender was given',Datetime.now());
-    }else{
-    const  errors = req . validationErrors ( ) ;
-    }
-    if  ( errors )  {
-        res . send ( {  errors :  errors  } ) ;
-    }  else  {
-         
-//sanitize the data using sanitize
-        
- const sanitizedUsername = sanitize(username);
-    const sanitizedPassword = sanitize(password);
-    const sanitizedEmail = sanitize(email);
-    const sanitizedbio = sanitize(bio);
-    const  salt  =  await  bcrypt . genSalt ( 10 ) ;
-    const  hashedPassword  =  await  bcrypt . hash ( req . body . password ,  salt ) ;
-    const user= new User({
-        username: sanitizedUsername,
-        password: hashedPassword,
-        email: sanitizedEmail,
-        gender: gender,
-        bio:sanitizedbio,
-        dob: dob,
-        salt: salt,
-        createdAt: Date.now()
-    });
-    try{
- //connect to mongoose and save
-    mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
-  await user.save()
-      
 
-        const id=randomBytes(16).toString('hex'); 
-        
-  const token=jwt.sign({userId: id}, privateKey, {algorithm: "RS256"}, function(err, token){
-if(err){
-    res.status(500).send("Internal server error");
-
-    logger.error(err,Date.now());
-}else{
-  
-    res.cookie("jwt", token, {httpOnly: true});
-    res.send("Cookie set successfully");
-    logger.info('User registered successfully');
-}
-    });
-}catch(err){
-    res.status(500).send('Error registering new user please try again.')
-    logger.error(err);
-}finally{
-    mongoose.connection.close();
-}
-)
-}
-});
-                                                                                                      
+                                                                                                     
 
 app.post('/login',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
@@ -173,10 +108,9 @@ app.post('/login',checkApiKey, async (req, res) => {
         res.send('You are already logged in');
         logger.info('User is already logged in', Date.now());   
     }else{
-       //connect to mongoose and find the user
+      
        try {
 
-            //connect to mngodb and get the salt
             mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
             const user=await mongoose.model('User').findOne({username: sanitizedUsername});
             if(!user){
@@ -185,14 +119,14 @@ app.post('/login',checkApiKey, async (req, res) => {
             }else{
                 const salt=user.salt;
                 const hashedPassword=await bcrypt.hash(sanitizedPassword, salt);
-  //connect to mongoose and find the user
+
   mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
   const user=await mongoose.model('User').findOne({username: sanitizedUsername, password: hashedPassword});
     if(!user){
         res.status(401).send('Username or password is incorrect');
         logger.error('Username or password is incorrect', Datetime.now());
     }else{
-        //generate a ra ndom id int
+        
       
         res.cookie("jwt", token, {httpOnly: true});
     res.status(200).send('User logged in successfully')
@@ -207,9 +141,8 @@ app.post('/login',checkApiKey, async (req, res) => {
     mongoose.disconnnect();
    }  
     }
-
-
 });
+
 
 app.post('/logout',checkApiKey, (req, res) => {
    try{
@@ -221,7 +154,7 @@ app.post('/logout',checkApiKey, (req, res) => {
     logger.error(error,Datetime.now());
    }
 });
-//create delete route and delete the user
+
 app.delete('/delete',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const username = req.body.username;
@@ -229,7 +162,7 @@ app.delete('/delete',checkApiKey, async (req, res) => {
     const sanitizedPassword = sanitize(password);
     const sanitizedUsername = sanitize(username);
     if(token){
-    //connect to mongodb and delete the user
+    
     try {
      mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
      const user=await mongoose.model('User').delete({username: sanitizedUsername});
@@ -251,18 +184,19 @@ app.delete('/delete',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create update route and update the user
-app.put('/update',checkApiKey, async (req, res) => {
+
+app.put('/user',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const username = req.body.username;
     const password = req.body.password;
     const bio= req.body.bio;
-
+    
+ 
     const sanitizedPassword = sanitize(password);
     const sanitizedUsername = sanitize(username);
     const sanitizedbio = sanitize(bio);
     if(token){
-    //connect to mongodb and update the user
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const user=await mongoose.model('User').update({username: sanitizedUsername}, {bio: sanitizedbio});
@@ -285,16 +219,15 @@ app.put('/update',checkApiKey, async (req, res) => {
     }
 
 });
-//create get route and get the user
 app.get('/user',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const username = req.body.username;
     const sanitizedUsername = sanitize(username);
     if(token){
-    //connect to mongodb and get the user
+    
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
-        const result=await mongoose.model('User').findOne({username: sanitizedUsername});
+        const result=await mongoose.model('User').findOne({username: sanitizedUsername},{username:1,email:1,profile_picture_url:1,dob:1,gender:1});
             if(!result){
                 res.status(404).send('User not found');
                 logger.error('User not found', Datetime.now());
@@ -312,9 +245,92 @@ app.get('/user',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now()); 
     }
 });
-
-//create friebd realtinship system
-//create post route and add the friend
+app.post('/register', upload.single('image'), checkApiKey, [
+    check('username', 'Username is too short').isLength({ min: 4 }),
+    check('password', 'Password is too short').isLength({ min: 4 }),
+    check('email', 'Email is not valid').isEmail(),
+  ], async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(422).json({ errors: errors.array() });
+    }
+  
+    const { username, password, email, gender, bio, dob } = req.body;
+    const label = ['Male', 'Female', null];
+  
+    if (label.includes(gender)) {
+      res.send('Invalid gender');
+      logger.error('Invalid gender was given', Datetime.now());
+    } else {
+      const sanitizedUsername = sanitize(username);
+      const sanitizedPassword = sanitize(password);
+      const sanitizedEmail = sanitize(email);
+      const sanitizedBio = sanitize(bio);
+  
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(sanitizedPassword, salt);
+  
+      const id = randomBytes(16).toString('hex');
+      const profile_picture_id = randomBytes(16).toString('hex');
+      const bucket = storage.bucket(process.env[bucket]);
+      const file = bucket.file(profile_picture_id);
+      const imageFile = req.file;
+  
+      try {
+        const options = {
+          resumable: false,
+          metadata: {
+            contentType: imageFile.mimetype,
+          },
+        };
+  
+        await file.save(imageFile.buffer, options);
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+  
+        const user = new User({
+          id: id,
+          profile_picture_id: profile_picture_id,
+          profile_picture_url: publicUrl,
+          username: sanitizedUsername,
+          password: hashedPassword,
+          email: sanitizedEmail,
+          gender: gender,
+          bio: sanitizedBio,
+          dob: dob,
+          salt: salt,
+          createdAt: Date.now(),
+        });
+  
+        mongoose.connect(process.env[url], { useNewUrlParser: true, useUnifiedTopology: true });
+        await user.save();
+  
+        const token = jwt.sign({ userId: id }, privateKey, { algorithm: "RS256" }, function (err, token) {
+          if (err) {
+            res.status(500).send("Internal server error");
+            logger.error(err, Date.now());
+          } else {
+            res.cookie("jwt", token, { httpOnly: true });
+            res.send("Cookie set successfully");
+            logger.info('User registered successfully');
+          }
+        });
+  
+      } catch (error) {
+        res.status(500).send("Internal Server Error");
+        logger.error(error, Datetime.now());
+      } finally {
+        if (req.file && req.file.path) {
+          fs.unlink(req.file.path, (err) => {
+            if (err) {
+              logger.error(error, Datetime.now());
+            }
+          });
+        }
+        mongoose.connection.close();
+      }
+    }
+  });
+  
 app.post('/friendreq',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -322,7 +338,7 @@ app.post('/friendreq',checkApiKey, async (req, res) => {
     const friend = req.body.friend;
     const sanitizedFriend = sanitize(friend);
     if(token){
-    //connect to mongodb and add the friend
+    
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const user=await mongoose.model('User').update({id: id}, {$push: {friends_requests: sanitizedFriend}});
@@ -345,7 +361,7 @@ app.post('/friendreq',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create delete route and delete the friend
+
 app.delete('/friend',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -353,7 +369,7 @@ app.delete('/friend',checkApiKey, async (req, res) => {
     const friend = req.body.friend;
     const sanitizedFriend = sanitize(friend);
     if(token){
-    //connect to mongodb and delete the friend
+  
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const user=await mongoose.model('User').find({id: id});
@@ -377,13 +393,12 @@ app.delete('/friend',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create get route and get the friend and friend requests
 app.get('/friends',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
     if(token){
-    //connect to mongodb and get the friend and friend requests
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const result=await mongoose.model('User').find({id: id}, {friends: 1, friends_requests: 1});
@@ -405,7 +420,7 @@ app.get('/friends',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create post route and add the friend
+
 app.post('/friend',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -413,7 +428,7 @@ app.post('/friend',checkApiKey, async (req, res) => {
     const friend = req.body.friend;
     const sanitizedFriend = sanitize(friend);
     if(token){
-    //connect to mongodb and add the friend
+ 
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const user=await mongoose.model('User').update({id: id}, {$push: {friends: sanitizedFriend}, $pull: {friends_requests: sanitizedFriend}});
@@ -444,9 +459,9 @@ const  Post=new mongoose.Schema({
     post_id:String,
     createdAt:Date
 });
-//creaate post model
+
 const post=mongoose.model('Post', post);
-//create post route and add the post
+
 app.post('/post',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -458,7 +473,7 @@ app.post('/post',checkApiKey, async (req, res) => {
     const title = req.body.title;
     const sanitizedTitle = sanitize(title);
     if(token){
-    //connect to mongodb and add the post
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const user=await mongoose.model('User').find({id: id});
@@ -468,7 +483,7 @@ app.post('/post',checkApiKey, async (req, res) => {
             }else{
            
               
-                //create post id
+  
                 const post_id = uuid.v4();
 
                 const post=new Post({title:sanitizedTitle,created_by: id,content:sanitizedPost, visibility: sanitizedVisibility,post_id:post_id, createdAt: Date.now()});
@@ -487,14 +502,14 @@ app.post('/post',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create delete route and delete the post
+
 app.delete('/post',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
     const post_id = req.body.post_id;
     if(token){
-    //connect to mongodb and delete the post
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {created_by: 1});
@@ -523,14 +538,14 @@ app.delete('/post',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create get route and get the post
+
 app.get('/post',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
     const post_id = req.body.post_id;
     if(token){
-    //connect to mongodb and get the post
+  
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const result=await mongoose.model('Post').find({created_by: id}, {title: 1, content: 1,likes: 1, commentCount: 1,visibility:1});
@@ -553,7 +568,7 @@ app.get('/post',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create a route to get 25 posts where the user is a friend and the post visibility is friend or where the post visibility is public
+
 app.get('/feed',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -580,7 +595,7 @@ app.get('/feed',checkApiKey, async (req, res) => {
         logger.error('User not logged in', Datetime.now());
     }
 });
-//create a route to update the post and make sure the post belongs to the user
+
 app.put('/post',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -593,7 +608,7 @@ app.put('/post',checkApiKey, async (req, res) => {
     const title = req.body.title;
     const sanitizedTitle = sanitize(title);
     if(token){
-    //connect to mongodb and update the post
+    
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {created_by: 1});
@@ -622,14 +637,14 @@ app.put('/post',checkApiKey, async (req, res) => {
         res.status(401).send('You are not logged in');
     }
 });
-//create a route to like the post
+
 app.put('/like',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
     const post_id = req.body.post_id;
     if(token){
-    //connect to mongodb and update the post
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {likes: 1});
@@ -654,14 +669,14 @@ app.put('/like',checkApiKey, async (req, res) => {
         logger.error('User is not logged in',Datetime.now())
     }
 });
-//create a route to unlike the post
+
 app.put('/unlike',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
     const post_id = req.body.post_id;
     if(token){
-    //connect to mongodb and update the post
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {likes: 1});
@@ -684,7 +699,7 @@ app.put('/unlike',checkApiKey, async (req, res) => {
       logger.error('User is not logged in',Datetime.now())
     }
 });
-//create a route to comment on a post and create the schema too
+
 app.post('/comment',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -693,7 +708,7 @@ app.post('/comment',checkApiKey, async (req, res) => {
     const comment = req.body.comment;
     const sanitizedComment = sanitize(comment);
     if(token){
-    //connect to mongodb and update the post
+  
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {commentCount: 1});
@@ -716,7 +731,13 @@ app.post('/comment',checkApiKey, async (req, res) => {
         logger.error('User is not logged in',Datetime.now())    
     }
 });
-//create a route to delete a comment on a post
+async function deleteFileFromBucketById(bucketName, fileId) {
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(fileId);
+    await file.delete();
+    console.log(`File with ID ${fileId} deleted successfully.`);
+  }
+  
 app.delete('/comment',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
@@ -724,7 +745,7 @@ app.delete('/comment',checkApiKey, async (req, res) => {
     const post_id = req.body.post_id;
     const comment_id = req.body.comment_id;
     if(token){
-    //connect to mongodb and update the post
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {comments: 1});
@@ -747,13 +768,13 @@ app.delete('/comment',checkApiKey, async (req, res) => {
         logger.error('You are not logged in',Datetime.now())
     }
 });
-//create a route to get the specifed ammunts of comments on a posts
+
 app.get('/comment',checkApiKey, async (req, res) => {
     const post_id = req.body.post_id;
     const start = req.body.start;
     const end = req.body.end;
     if(token){
-    //connect to mongodb and update the post
+
     try {
         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
         const post=await mongoose.model('Post').find({post_id: post_id}, {comments: 1});
@@ -764,6 +785,35 @@ app.get('/comment',checkApiKey, async (req, res) => {
             const result=await mongoose.model('Post').find({post_id: post_id}, {comments: {$slice: [start, end]}});
             res.status(200).send(result)
             logger.info('Comment deleted successfully',Datetime.now())
+        }
+        }catch(error){
+            res.status(500).send("Internal Server Error");
+            logger.error(error,Datetime.now());
+        }finally{
+            mongoose.connection.close();
+        }
+    }else{
+        res.status(401).send('You are not logged in');
+        logger.error('User is not logged in',Datetime.now())
+    }
+});
+
+app.get('/user',checkApiKey, async (req, res) => {
+    const token = req.cookies.jwt;
+    const decoded=jwt.decode(token);
+    const id=decoded.id;
+    const username = req.body.username;
+    if(token){
+         
+    try {
+        mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
+        const user=await mongoose.model('User').find({username:username}, {username: 1, bio: 1, profile_picture_id: 1});
+        if(!user){
+            res.status(404).send('User not found');
+            logger.error('User not found',Datetime.now())
+        }else{
+            res.status(200).send(user);
+            logger.info('User found successfully',Datetime.now())
         }
         }catch(error){
             res.status(500).send("Internal Server Error");
