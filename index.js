@@ -16,8 +16,8 @@ const upload= multer({dest:'/uploads'})
 //const cron= require('node-cron');
 //const MongoClient = require('mongodb')
 const { combine, timestamp, label, printf } = winston.format;
-const { randomBytes } = require('crypto');
-const { profile } = require('console');
+
+const { check, validationResult } = require('express-validator');
 const {v4: uuidv4}=require('uuid')
 const nodemailer=require('nodemailer');
 const redis = require('redis');
@@ -48,15 +48,32 @@ const limiter = rateLimit({
 app.use(limiter)
 app.use ( express . json ( ) ) ;
 app.use ( cookieParser ( ) ) ;
-function checkApiKey(req, res, next) {
+app.use ( express . urlencoded ( { extended :  true  } ) ) ;
+
+const apiKeySchema = new mongoose.Schema({
+    key: String,
+    createdAt: Date
+})
+const apiKeyModel = mongoose.model('ApiKey', apiKeySchema);
+async function checkApiKey(req, res, next) {
     const apiKey = req.headers['x-api-key'] || req.query.apiKey;
     if (!apiKey) {
       return res.status(401).json({error: 'API key is missing'});
     }
-   
-    if (apiKey !== 'validApiKey') {
+   try{
+    mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true})
+    const result=await apiKeyModel.findOne({key: apiKey});
+    if (!result) {
       return res.status(401).json({error: 'Invalid API key'});
     }
+}catch(error){
+    
+
+    res.status(500).send("Internal Server Error");
+    logger.error(error,Datetime.now());
+}finally{
+    mongoose.connection.close();
+}
     next();
   }
 
@@ -217,7 +234,7 @@ app.put('/user',checkApiKey,upload.single('image'), async (req, res) => {
 
     try { 
        await  deleteFileFromBucketById(profile_picture_idd)
-       const profile_picture_id = randomBytes(16).toString('hex');
+       const profile_picture_id = uuidv4();
        const bucket = storage.bucket(process.env[bucket]);
        const file = bucket.file(profile_picture_id);
        const imageFile = req.file;
@@ -324,8 +341,8 @@ app.post('/register', upload.single('image'), checkApiKey, [
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(sanitizedPassword, salt);
   
-      const id = randomBytes(16).toString('hex');
-      const profile_picture_id = randomBytes(16).toString('hex');
+      const id = uuidv4();
+      const profile_picture_id = uuidv4();
       const bucket = storage.bucket(process.env[bucket]);
       const file = bucket.file(profile_picture_id);
       const imageFile = req.file;
@@ -1078,17 +1095,15 @@ app.post('/reset-password',validateApiKey,async(req,res)=>{
                         
                         await redisClient.set(userId,code,(err,reply)=>{
                             if(err){
-                                console.log(err)
+                                res.status(500).send("Internal Server Error");
                             }
                             else{
-                                console.log(reply)
+                               res.status(200).send("Ok");
                             }
                         })
                     }
                     })
      
-
-            res.status(200).send("Ok");
             logger.info('Code sent successfully',Datetime.now())
         }
         }catch(error){
