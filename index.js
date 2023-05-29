@@ -1646,6 +1646,9 @@ socket.on('like',async (data)=>{
         logger.info('Post liked successfully',Datetime.now())
     }
 });
+socket.on('joinroom',(room)=>{
+    socket.join(room)
+})
 socket.on('endLivestream',async ()=>{
  socket.leave(room)
     const jwt=req.cookies.jwt;
