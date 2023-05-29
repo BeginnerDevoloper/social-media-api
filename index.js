@@ -17,7 +17,9 @@ const ffmpeg= require('ffmpeg')
 //const MongoClient = require('mongodb')
 const { combine, timestamp, label, printf } = winston.format;
 const { Client } = require('@elastic/elasticsearch');
-
+const http= require('http').createServer(app)
+const io=require('socket.io')(http)
+const AWS =require('aws-sdk')
 const elasticClient = new Client({
   node:process.env['node']
 });
@@ -26,9 +28,11 @@ const { check, validationResult } = require('express-validator');
 const {v4: uuidv4}=require('uuid')
 const nodemailer=require('nodemailer');
 const redis = require('redis');
+const { promisify } = require('util');
 const redisClient = redis.createClient({
     host: process.env['host'],
     port: process.env['port'],
+    password: process.env['password'],
 });
 
 const  transporter= nodemailer.createTransport({
@@ -44,7 +48,10 @@ app.use ( cors (
         optionsSuccessStatus : 200
     }
 ) ) ;
-
+const s3= new AWS.S3({
+ accessKeyId:process.env['acessKeyId'],
+ secretAccessKey:process.env['secretAccessKey'],
+})
 require('dotenv').config();
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -1527,7 +1534,13 @@ app.post('/verify-email',async(req,res)=>{
       });
       res.status(200).send({ posts: postResp.hits.hits});
     
-      const userResp = await elasticClient.search({
+
+     
+    } catch (err) {
+      res.status(500).send('Error searching posts and users.');
+    }
+  }else{
+    const userResp = await elasticClient.search({
         index: 'users',
         body: {
           query: {
@@ -1537,18 +1550,106 @@ app.post('/verify-email',async(req,res)=>{
               }
             }
           }
+
         }
       });
-  
+    
       res.status(200).send({users: userResp.hits.hits });
-    } catch (err) {
-      res.status(500).send('Error searching posts and users.');
-    }
-  }
+    
+}
 });
-  
- 
 
-app.listen ( port ,  ( )  =>  {
-    console . log ( `Example app listening at http://localhost:${port}` ) ;
+const liveStreamSchema=new mongoose.Schema({
+    id:String,
+    title:String,
+    userId:String,
+    createdAt:Date
+});
+const Livestream=mongoose.model('Livestream',liveStreamSchema);
+const tempDir ='./temp';
+
+io.on('connection', (socket) => {
+logger.info('User connected',Datetime.now())
+});
+socket.on('startLivestream',async ()=>{
+  
+
+    const jwt=req.cookies.jwt;
+    const decoded=jwt.decode(jwt)
+    const userId=decoded.id
+    const title=req.body.title;
+ const fileName=`${socket.id}.ts`
+ const filePath=`${tempDir}/${fileName}`
+ const writeStream=fs.createWriteStream(filePath);
+ const liveStreamid=uuidv4();
+ 
+    const livestream=new Livestream({
+        id:liveStreamid,
+        title:title,
+        userId:userId
+    });
+    await livestream.save();
+   
+    socket.on('stream',(chunk)=>{
+        writeStream.write(chunk);
+    });
+});
+
+socket.on('endLivestream',async ()=>{
+ 
+    const jwt=req.cookies.jwt;
+    const decoded=jwt.decode(jwt)
+    const userId=decoded.id
+    const title=req.body.title;
+    const liveStreamid=req.body.liveStreamid;
+  
+    const livestream=await Livestream.findOne({id:liveStreamid},{userId:1});
+    if(livestream.userId!=userId){
+        res.status(401).send("Unauthorized");
+        logger.error('User not authorized',Datetime.now())
+    }
+    fs.writeStream.close();
+    const compressedFileName=`${socket.id}.mp4`;
+    const compressedFilePath=`${tempDir}/${compressedFileName}`;
+
+    try{
+        await promisify(spwan)('ffmpeg',[
+            '-i',
+            filePath,
+            '-c:v',
+            'libx264',
+            '-preset',
+            'fast',
+            '-c:a',
+            'aac',
+            compressedFilePath
+        ])
+        const params={
+            Bucket:process.env[bucket],
+            Key:compressedFileName,
+            Body:fs.createReadStream(compressedFilePath),
+        }
+        const uploadedVideo=await s3.upload(params).promise();
+        const videoData={
+        userId:socket.id,
+        videoUrl:uploadedVideo.Location,
+    };
+    await promisify(fs.unlink)(filePath);
+    await promisify(fs.unlink)(compressedFilePath);
+
+    }catch(err){
+        logger.error(err,Datetime.now());
+    }
+
+
+})
+socket.on('disconnect', () => {
+    logger.info('User disconnected',Datetime.now())
+});
+
+
+
+
+app.listen (port,() => {
+    console.log ( `Example app listening at http://localhost:${port}` ) ;
 });
