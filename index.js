@@ -2,6 +2,7 @@ const  express = require ( 'express' ) ;
 const  app =  express ( ) ;
 const  port =  3000 ;
 const  cors = require ( 'cors' ) ;
+const https=require('https')
 const  bcrypt = require ( 'bcrypt' ) ;
 const  cookieParser = require ( 'cookie-parser' ) ;
 const  jwt = require ( 'jsonwebtoken' ) ;
@@ -142,6 +143,10 @@ const storage= new Storage({
     keyFilename:process.env[name],
     projectId:process.env[id]
 })
+const privateKey = fs.readFileSync('path/to/your/private-key.pem');
+const certificate = fs.readFileSync('path/to/your/certificate.pem');
+const ca = fs.readFileSync('path/to/your/ca.pem');
+
 app ( '/' ,  ( req ,  res )  =>  {
     res . send ( 'Hello World!' ) ;
     }
@@ -1729,6 +1734,8 @@ socket.on('disconnect', () => {
 
 
 
-app.listen (port,() => {
-    console.log ( `Example app listening at http://localhost:${port}` ) ;
+const server = https.createServer(options, app);
+
+server.listen(3000, () => {
+  console.log('Server listening on port 3000 with SSL');
 });
