@@ -359,7 +359,7 @@ app.get('/user', checkApiKey, async (req, res) => {
   ssl: true,
   sslValidate: true,
   sslCA: ca}, { useNewUrlParser: true, useUnifiedTopology: true });
-                    const result = await mongoose.model('User').findOne({ username: sanitizedUsername }, { username: 1, email: 1, profile_picture_url: 1, dob: 1, gender: 1, fastatus: 1 });
+                    const result = await mongoose.model('User').findOne({ username: sanitizedUsername }, { username: 1, email: 1, profile_picture_url: 1, dob: 1, gender: 1,bio:1,profile_picture_id:1, fastatus: 1 });
 
 
                     if (!result) {
