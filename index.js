@@ -14,6 +14,12 @@ const winston = require('winston');
 const { Storage } = require("google-cloud/storage")
 const upload = multer({ dest: '/uploads' })
 const ffmpeg = require('ffmpeg')
+
+const options = {
+  key: privateKey,
+  cert: certificate,
+  ca: ca,
+};
 //const cron= require('node-cron');
 //const MongoClient = require('mongodb')
 const { combine, timestamp, label, printf } = winston.format;
