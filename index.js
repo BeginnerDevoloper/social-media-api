@@ -12,10 +12,15 @@ const multer=require('multer')
 const winston = require('winston');
 const {Storage}= require("google-cloud/storage")
 const upload= multer({dest:'/uploads'})
-
+const ffmpeg= require('ffmpeg')
 //const cron= require('node-cron');
 //const MongoClient = require('mongodb')
 const { combine, timestamp, label, printf } = winston.format;
+const { Client } = require('@elastic/elasticsearch');
+
+const elasticClient = new Client({
+  node:process.env['node']
+});
 
 const { check, validationResult } = require('express-validator');
 const {v4: uuidv4}=require('uuid')
@@ -94,7 +99,24 @@ const logger = winston.createLogger({
     new winston.transports.File({ filename: 'logfile.log' })
   ]
 });
-
+async function compress() {
+    try {
+        const process = new ffmpeg('./uploads/video.mp4');
+        process.then(function (video) {
+            video
+                .setVideoSize('640x480', true, true, '#fff')
+                .save('./uploads/video_compressed.mp4', function (error, file) {
+                    if (!error)
+                        console.log('Video file: ' + file);
+                });
+        }, function (err) {
+            console.log('Error: ' + err);
+        });
+    } catch (e) {
+        console.log(e.code);
+        console.log(e.msg);
+    }
+}
   
  
   
@@ -374,6 +396,21 @@ app.post('/register', upload.single('image'), checkApiKey, [
   
         mongoose.connect(process.env[url], { useNewUrlParser: true, useUnifiedTopology: true });
         await user.save();
+
+  // Index a user
+  elasticClient.index({
+    index: 'users',
+    body: {
+      username: sanitizedUsername
+    }
+  }, (err, resp) => { 
+if(err){
+    logger.error(err, Date.now());
+}else{
+    res.status(200).send('User registered successfully');
+    logger.info('Index created succesfully', Date.now());
+}
+   });
   
         const token = jwt.sign({ userId: id }, privateKey, { algorithm: "RS256" }, function (err, token) {
           if (err) {
@@ -551,7 +588,7 @@ const  Post=new mongoose.Schema({
 
 const post=mongoose.model('Post', post);
 
-app.post('/post',checkApiKey,upload.single('image'),async(req, res) => {
+app.post('/post',checkApiKey,upload.single('file'),async(req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
@@ -561,7 +598,7 @@ app.post('/post',checkApiKey,upload.single('image'),async(req, res) => {
     const sanitizedVisibility = sanitize(visibility);
     const title = req.body.title;
     const sanitizedTitle = sanitize(title);
-    const image=req.file;   
+    let image=req.file;   
     if(token){
 
     try {
@@ -573,37 +610,71 @@ app.post('/post',checkApiKey,upload.single('image'),async(req, res) => {
             }else{
            
               if (file){
-  
-                const post_id = uuidv4();
-                const img_id= uuidv4();
-        
+            //compress the video
+            image= await compress();
+            const fileId=uuidv4();      
+                
+
                 const bucket = storage.bucket(process.env[post_bucket]);
-                const blob = bucket.file(img_id);
-                const blobStream = blob.createWriteStream();
-                blobStream.on('error', (err) => {
+                const file = bucket.file(fileId);
+                const blobStream = file.createWriteStream({
+                    metadata: {
+                        contentType: file.mimetype
+                    }
+                });
+                blobStream.on('error', (error) => {
                     res.status(500).send("Internal Server Error");
-                    logger.error(err,Datetime.now());
+                    logger.error(error,Datetime.now());
                 });
                 blobStream.on('finish', async () => {
-                    const publicUrl = format(`https://storage.googleapis.com/${bucket.name}/${blob.name}`);
-                    const image_id=img_id;
-                    const post=new Post({title:sanitizedTitle,created_by: id,content:sanitizedPost, visibility: sanitizedVisibility,post_id:post_id, createdAt: Date.now(),image_url:publicUrl,image_id:image_id});
+                    const image_url = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+                    const post=new Post({title:sanitizedTitle,created_by: id,content:sanitizedPost, visibility: sanitizedVisibility,post_id:post_id, createdAt: Date.now(),image_id:fileId,image_url:image_url});
                     const result=await post.save();
                     res.status(200).send('Post added successfully')
-                })
+                    logger.info('Post added successfully', Datetime.now());
+                });
+                blobStream.end(req.file.buffer);
             }else{
-
+            
+                  
                      const post=new Post({title:sanitizedTitle,created_by: id,content:sanitizedPost, visibility: sanitizedVisibility,post_id:post_id, createdAt: Date.now()});
                 const result=await post.save();
                 res.status(200).send('Post added successfully')
                 logger.info('Post added successfully', Datetime.now());
             }
+            elasticClient.index({
+                index: 'posts',
+                body: {
+                  title: sanitizedTitle,
+                content: sanitizedPost,
+                }
+              }, (err, resp) => { 
+            if(err){
+                logger.error(err, Date.now());
+            }else{
+                res.status(200).send('Post added successfully');
+                logger.info('Index created succesfully', Date.now());
+            }
+              });
             }
         }catch(error){
             res.status(500).send("Internal Server Error");
             logger.error(error,Datetime.now()); 
         }finally{
+          
+            if (req.file && req.file.path) {
+      
+            fs.unlink(req.file.path, (err) => {
+                if (err) {                                                                                              
+                    logger.error(error, Datetime.now());
+                }
+            });
+            
+             
             mongoose.connection.close();
+            }else{
+                mongoose.connection.close();
+            }
         }
     }else{
         res.status(401).send('You are not logged in');
@@ -657,7 +728,7 @@ app.delete('/post',checkApiKey, async (req, res) => {
     }
 });
 
-app('/post',checkApiKey, async (req, res) => {
+app.get('/post',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
@@ -695,7 +766,7 @@ app('/post',checkApiKey, async (req, res) => {
     })
 
 
-app('/feed',checkApiKey, async (req, res) => {
+app.get('/feed',checkApiKey, async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
@@ -722,7 +793,7 @@ app('/feed',checkApiKey, async (req, res) => {
     }
 });
 
-app.put('/post',checkApiKey,upload.single('image'), async (req, res) => {
+app.put('/post',checkApiKey,upload.single('file'), async (req, res) => {
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
@@ -932,7 +1003,7 @@ app.delete('/comment',checkApiKey, async (req, res) => {
     }
 });
 
-app('/comment',checkApiKey, async (req, res) => {
+app.get('/comment',checkApiKey, async (req, res) => {
     const post_id = req.body.post_id;
     const start = req.body.start;
     const end = req.body.end;
@@ -1023,13 +1094,13 @@ app('/user',checkApiKey, async (req, res) => {
         logger.error('User is not logged in',Datetime.now())
     }
 });
-//create a route for getting information of a friend and cache using redis
+
 app('/friend',checkApiKey, async (req, res) => {    
     const token = req.cookies.jwt;
     const decoded=jwt.decode(token);
     const id=decoded.id;
     const username = req.body.username;
- //check the redis cache
+
    const user= client(username,async(err,user)=>{
         if(err) throw err;
     })
@@ -1063,6 +1134,40 @@ app('/friend',checkApiKey, async (req, res) => {
     }
 })
 
+app.get('/user',checkApiKey, async (req, res) => {
+    const token = req.cookies.jwt;
+    const decoded=jwt.decode(token);
+    const id=decoded.id;
+    const username = req.body.username;
+    if(token){
+        
+    try {
+        mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
+        const user=await mongoose.model('User').find({username:username}, {username: 1, bio: 1, profile_picture_id: 1});
+        if(!user){
+            res.status(404).send('User not found');
+            logger.error('User not found',Datetime.now())
+        }else{
+            res.status(200).send(user);
+            logger.info('User found successfully',Datetime.now())
+        }
+    }catch(error){
+        res.status(500).send("Internal Server Error");
+        logger.error(error,Datetime.now());
+    }finally{
+        mongoose.connection.close();
+    }
+}else{
+    res.status(401).send('You are not logged in');
+    logger.error('User is not logged in',Datetime.now())
+}
+});
+app.get('/user/posts',checkApiKey, async (req, res) => {
+    const token = req.cookies.jwt;  
+    const decoded=jwt.decode(token);
+    const id = decoded.id;
+
+});
 
 app.post('/reset-password',validateApiKey,async(req,res)=>{
     const email=req.body.email;
@@ -1368,6 +1473,8 @@ app.post('/verify-email',async(req,res)=>{
 );
 
 
+       
+
 /*cron.schedule('0 0 * * 0', async () => {
     try {
       // connect to MongoDB
@@ -1393,7 +1500,53 @@ app.post('/verify-email',async(req,res)=>{
   
   // start the cron scheduler
   //cron.start();
+  app.get('/search', async (req, res) => {
+    const query = req.query.q;
+    const type=req.body.type;
 
+    if (!query) {
+      res.status(400).send('Please provide a search query.');
+      return;
+    }
+  if (type==='posts'){
+    try {
+      const postResp = await elasticClient.search({
+        index: 'posts',
+        body: {
+          query: {
+            match_phrase: {
+              title: {
+                query: query
+              },
+              content: {
+                query: query
+              }
+            }
+          }
+        }
+      });
+      res.status(200).send({ posts: postResp.hits.hits});
+    
+      const userResp = await elasticClient.search({
+        index: 'users',
+        body: {
+          query: {
+            match_phrase: {
+              username: {
+                query: query
+              }
+            }
+          }
+        }
+      });
+  
+      res.status(200).send({users: userResp.hits.hits });
+    } catch (err) {
+      res.status(500).send('Error searching posts and users.');
+    }
+  }
+});
+  
  
 
 app.listen ( port ,  ( )  =>  {
