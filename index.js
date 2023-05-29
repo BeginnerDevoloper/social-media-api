@@ -6,6 +6,7 @@ const  bcrypt = require ( 'bcrypt' ) ;
 const  cookieParser = require ( 'cookie-parser' ) ;
 const  jwt = require ( 'jsonwebtoken' ) ;
 const mongoose = require('mongoose');
+const ca = [fs.readFileSync(__dirname + "/ssl/ca.pem")];
 const rateLimit=require('express-rate-limiter')
 const fs = require('fs');
 const multer=require('multer')
@@ -27,12 +28,20 @@ const elasticClient = new Client({
 const { check, validationResult } = require('express-validator');
 const {v4: uuidv4}=require('uuid')
 const nodemailer=require('nodemailer');
-const redis = require('redis');
+const redis = require('ioredis');
 const { promisify } = require('util');
+const {spawn}=require('spawn')
 const redisClient = redis.createClient({
     host: process.env['host'],
     port: process.env['port'],
     password: process.env['password'],
+  tls: {
+    key: fs.readFileSync(__dirname + '/ssl/client.pem'),
+    cert: fs.readFileSync(__dirname + '/ssl/client.pem'),
+    ca: fs.readFileSync(__dirname + '/ssl/ca.pem'),
+    rejectUnauthorized: false,
+    // Enable other SSL options if needed
+  },
 });
 
 const  transporter= nodemailer.createTransport({
