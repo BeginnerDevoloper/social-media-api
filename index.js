@@ -1563,16 +1563,26 @@ const liveStreamSchema=new mongoose.Schema({
     id:String,
     title:String,
     userId:String,
-    createdAt:Date
+    createdAt:Date,
+    roomId:String
 });
 const Livestream=mongoose.model('Livestream',liveStreamSchema);
 const tempDir ='./temp';
-
+const chatMessageSchema= new mongoose.Schema({
+    room:String,
+    username:String,
+    message:String,
+    timestamp:{type:Date,default:Date.now},
+    profile_picture_url:String
+})
+const ChatMessage=mongoose.model('ChatMessage',chatMessageSchema);
 io.on('connection', (socket) => {
 logger.info('User connected',Datetime.now())
 });
 socket.on('startLivestream',async ()=>{
-  
+  const room=socket.id;
+
+  socket.join(room);
 
     const jwt=req.cookies.jwt;
     const decoded=jwt.decode(jwt)
@@ -1586,17 +1596,58 @@ socket.on('startLivestream',async ()=>{
     const livestream=new Livestream({
         id:liveStreamid,
         title:title,
-        userId:userId
+        userId:userId,
+        createdAt:Date.now(),
+        roomId:room
     });
     await livestream.save();
    
     socket.on('stream',(chunk)=>{
         writeStream.write(chunk);
+socket.to(room),emit('stream',chunk);
     });
 });
-
+socket.on('leaveRoom',async()=>{
+    socket.leave(room);
+})
+socket.on('chatMessage',async (message)=>{
+    const jwt=req.cookies.jwt;
+    const decoded=jwt.decode(jwt)
+    const userId=decoded.id
+    const username=req.body.username;
+    const room=req.body.room;
+    const post_id=req.body.post_id;
+    const chatMessage=new ChatMessage({
+        room:room,
+        username:username,
+        message:message,
+        timestamp:Date.now(),
+        username:req.body.username,
+        profile_picture_url:req.body.profile_picture_url
+    });
+    await chatMessage.save();
+    socket.to(room).emit('chatMessage',message);
+});
+socket.on('like',async (data)=>{
+ const {room}=data;
+ const jwt=req.cookies.jwt;
+    const decoded=jwt.decode(jwt)
+    const userId=decoded.id
+    const username=req.body.username;
+    const profile_picture_url=req.body.profile_picture_url;
+    const post_id=req.body.post_id;
+    const post=await mongoose.model('Post').find({post_id: post_id}, {likes: 1});
+    if(!post){
+        res.status(404).send('Post not found');
+        logger.error('Post not found',Datetime.now())
+    }else{
+        const result=await mongoose.model('Post').updateOne({post_id: post_id}, {$addToSet: {likes: id}});
+        socket.to(room).emit('like',data);
+        logger.info('Post liked successfully',Datetime.now())
+    }
+});
 socket.on('endLivestream',async ()=>{
- 
+ socket.leave(room)
     const jwt=req.cookies.jwt;
     const decoded=jwt.decode(jwt)
     const userId=decoded.id
@@ -1636,7 +1687,23 @@ socket.on('endLivestream',async ()=>{
     };
     await promisify(fs.unlink)(filePath);
     await promisify(fs.unlink)(compressedFilePath);
-
+    app.delete('/video/:id',async(req,res)=>{
+        const videoId=req.params.videoId;
+        const jwt=req.cookies.jwt;
+         const decoded=jwt.decode(jwt)
+         const userId=decoded.id
+         mongoose.connect(process.env[url], {useNewUrlParser: true, useUnifiedTopology: true});
+         await mongoose.findOne({id:videoId},{userId:1});
+         if(livestream.userId!=userId){
+             res.status(401).send("Unauthorized");
+             logger.error('User not authorized',Datetime.now())
+         }else{
+             await mongoose.deleteOne({id:videoId});
+             res.status(200).send("Ok");
+             logger.info('Video deleted successfully',Datetime.now())
+         }
+     });
+     
     }catch(err){
         logger.error(err,Datetime.now());
     }
